@@ -1,0 +1,2 @@
+class InvalidLLMResponse(RuntimeError):
+    pass

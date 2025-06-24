@@ -1,0 +1,18 @@
+diff --git a/django/core/files/storage.py b/django/core/files/storage.py
+index cbdab1de47..f8ac2ce556 100644
+--- a/django/core/files/storage.py
++++ b/django/core/files/storage.py
+@@ -214,7 +214,12 @@ class FileSystemStorage(Storage):
+ 
+     @cached_property
+     def file_permissions_mode(self):
+-        return self._value_or_setting(self._file_permissions_mode, settings.FILE_UPLOAD_PERMISSIONS)
++        mode = self._value_or_setting(self._file_permissions_mode, settings.FILE_UPLOAD_PERMISSIONS)
++        # Default to 0o644 on POSIX systems when no explicit permission is set
++        # This ensures consistent permissions for both small and large file uploads
++        if mode is None and os.name != 'nt':
++            return 0o644
++        return mode
+ 
+     @cached_property
+     def directory_permissions_mode(self):

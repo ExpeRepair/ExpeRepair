@@ -1,0 +1,32 @@
+diff --git a/django/db/backends/base/schema.py b/django/db/backends/base/schema.py
+index 61f88401ab..68c5e08c63 100644
+--- a/django/db/backends/base/schema.py
++++ b/django/db/backends/base/schema.py
+@@ -393,7 +393,7 @@ class BaseDatabaseSchemaEditor:
+         news = {tuple(fields) for fields in new_index_together}
+         # Deleted indexes
+         for fields in olds.difference(news):
+-            self._delete_composed_index(model, fields, {'index': True}, self.sql_delete_index)
++            self._delete_composed_index(model, fields, {'index': True, 'unique': False}, self.sql_delete_index)
+         # Created indexes
+         for field_names in news.difference(olds):
+             fields = [model._meta.get_field(field) for field in field_names]
+@@ -407,6 +407,18 @@ class BaseDatabaseSchemaEditor:
+             model, columns, exclude=meta_constraint_names | meta_index_names,
+             **constraint_kwargs
+         )
++        
++        # If we're looking for index constraints and found multiple constraints,
++        # filter out unique constraints to avoid conflicts with unique_together
++        if constraint_kwargs.get('index') and len(constraint_names) > 1:
++            # Get unique constraint names to exclude them
++            unique_constraint_names = self._constraint_names(
++                model, columns, exclude=meta_constraint_names | meta_index_names,
++                unique=True
++            )
++            # Filter using list comprehension to avoid type errors
++            constraint_names = [name for name in constraint_names if name not in unique_constraint_names]
++        
+         if len(constraint_names) != 1:
+             raise ValueError("Found wrong number (%s) of constraints for %s(%s)" % (
+                 len(constraint_names),

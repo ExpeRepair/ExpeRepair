@@ -1,0 +1,13 @@
+{
+    "output_folder": "results/localize_example",
+    "output_file": "localize_patch_outputs.jsonl",
+    "reproduce_folder": "results/reproduce_example",
+    "temperature": 1.0,
+    "num_samples": 1,
+    "task_id": "django__django-10914",
+    "setup_map": "/home/elloworl/Projects/PycharmProjects/SWE/SWE-bench-ACR/lite_setup_result/setup_map.json",
+    "tasks_map": "/home/elloworl/Projects/PycharmProjects/SWE/SWE-bench-ACR/lite_setup_result/tasks_map.json",
+    "task_list_file": null,
+    "num_threads": 1,
+    "model": "claude-sonnet-4-20250514"
+}

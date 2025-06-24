@@ -1,0 +1,68 @@
+diff --git a/django/db/backends/base/schema.py b/django/db/backends/base/schema.py
+index 61f88401ab..bbffab32aa 100644
+--- a/django/db/backends/base/schema.py
++++ b/django/db/backends/base/schema.py
+@@ -399,7 +399,38 @@ class BaseDatabaseSchemaEditor:
+             fields = [model._meta.get_field(field) for field in field_names]
+             self.execute(self._create_index_sql(model, fields, suffix="_idx"))
+ 
++    def _pick_single_constraint(self, model, columns, exclude, **constraint_kwargs):
++        """
++        Return exactly one constraint name matching the given criteria.
++        Raises ValueError if zero or more than one constraint is found.
++        
++        This helper handles cases where multiple constraint types exist on the same
++        columns (e.g., both unique_together and index_together) by filtering to
++        the specific type requested.
++        """
++        constraint_names = self._constraint_names(
++            model, columns, exclude=exclude, **constraint_kwargs
++        )
++        if len(constraint_names) != 1:
++            constraint_type = 'unique' if constraint_kwargs.get('unique') else 'index'
++            raise ValueError(
++                "Expected exactly one %s constraint on %s(%s), got %s: %s" % (
++                    constraint_type,
++                    model._meta.db_table,
++                    ", ".join(columns),
++                    len(constraint_names),
++                    ", ".join(sorted(constraint_names)) if constraint_names else "none"
++                )
++            )
++        return constraint_names[0]
++
+     def _delete_composed_index(self, model, fields, constraint_kwargs, sql):
++        """
++        Delete a composed index (unique_together or index_together).
++        
++        Special handling when both unique_together and index_together exist on the same columns:
++        introspection may return both a UNIQUE and an INDEX constraint; re-query by type to disambiguate.
++        """
+         meta_constraint_names = {constraint.name for constraint in model._meta.constraints}
+         meta_index_names = {constraint.name for constraint in model._meta.indexes}
+         columns = [model._meta.get_field(field).column for field in fields]
+@@ -407,13 +438,18 @@ class BaseDatabaseSchemaEditor:
+             model, columns, exclude=meta_constraint_names | meta_index_names,
+             **constraint_kwargs
+         )
++        
+         if len(constraint_names) != 1:
+-            raise ValueError("Found wrong number (%s) of constraints for %s(%s)" % (
+-                len(constraint_names),
+-                model._meta.db_table,
+-                ", ".join(columns),
+-            ))
+-        self.execute(self._delete_constraint_sql(sql, model, constraint_names[0]))
++            # When multiple constraints exist (e.g., both unique and index on same columns),
++            # use the helper to pick exactly the type we want to delete
++            constraint_name = self._pick_single_constraint(
++                model, columns, exclude=meta_constraint_names | meta_index_names,
++                **constraint_kwargs
++            )
++        else:
++            constraint_name = constraint_names[0]
++            
++        self.execute(self._delete_constraint_sql(sql, model, constraint_name))
+ 
+     def alter_db_table(self, model, old_db_table, new_db_table):
+         """Rename the table a model points to."""

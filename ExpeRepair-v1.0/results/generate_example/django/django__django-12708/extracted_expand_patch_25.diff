@@ -1,0 +1,29 @@
+diff --git a/django/db/backends/base/schema.py b/django/db/backends/base/schema.py
+index 61f88401ab..daadd3129a 100644
+--- a/django/db/backends/base/schema.py
++++ b/django/db/backends/base/schema.py
+@@ -407,6 +407,24 @@ class BaseDatabaseSchemaEditor:
+             model, columns, exclude=meta_constraint_names | meta_index_names,
+             **constraint_kwargs
+         )
++        
++        # Handle the case where both unique and index constraints exist on the same fields
++        if len(constraint_names) > 1:
++            # If we're specifically looking for unique constraints, exclude index-only constraints
++            if constraint_kwargs.get('unique', False) and not constraint_kwargs.get('index', False):
++                index_constraint_names = self._constraint_names(
++                    model, columns, exclude=meta_constraint_names | meta_index_names,
++                    index=True, unique=False
++                )
++                constraint_names = [name for name in constraint_names if name not in index_constraint_names]
++            # If we're specifically looking for index constraints, exclude unique-only constraints
++            elif constraint_kwargs.get('index', False) and not constraint_kwargs.get('unique', False):
++                unique_constraint_names = self._constraint_names(
++                    model, columns, exclude=meta_constraint_names | meta_index_names,
++                    unique=True, index=False
++                )
++                constraint_names = [name for name in constraint_names if name not in unique_constraint_names]
++        
+         if len(constraint_names) != 1:
+             raise ValueError("Found wrong number (%s) of constraints for %s(%s)" % (
+                 len(constraint_names),

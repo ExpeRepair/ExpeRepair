@@ -1,0 +1,37 @@
+diff --git a/django/db/backends/base/schema.py b/django/db/backends/base/schema.py
+index 61f88401ab..a9a6c4bf23 100644
+--- a/django/db/backends/base/schema.py
++++ b/django/db/backends/base/schema.py
+@@ -403,10 +403,28 @@ class BaseDatabaseSchemaEditor:
+         meta_constraint_names = {constraint.name for constraint in model._meta.constraints}
+         meta_index_names = {constraint.name for constraint in model._meta.indexes}
+         columns = [model._meta.get_field(field).column for field in fields]
+-        constraint_names = self._constraint_names(
+-            model, columns, exclude=meta_constraint_names | meta_index_names,
+-            **constraint_kwargs
+-        )
++        
++        # Be more specific about constraint type to avoid conflicts between
++        # unique_together and index_together on the same fields
++        if constraint_kwargs.get('unique'):
++            # When deleting unique constraints, explicitly look for unique=True
++            constraint_names = self._constraint_names(
++                model, columns, exclude=meta_constraint_names | meta_index_names,
++                unique=True
++            )
++        elif constraint_kwargs.get('index'):
++            # When deleting index constraints, look for index=True and exclude unique ones
++            constraint_names = self._constraint_names(
++                model, columns, exclude=meta_constraint_names | meta_index_names,
++                index=True, unique=False
++            )
++        else:
++            # Fallback to original behavior for other constraint types
++            constraint_names = self._constraint_names(
++                model, columns, exclude=meta_constraint_names | meta_index_names,
++                **constraint_kwargs
++            )
++        
+         if len(constraint_names) != 1:
+             raise ValueError("Found wrong number (%s) of constraints for %s(%s)" % (
+                 len(constraint_names),

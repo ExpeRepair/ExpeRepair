@@ -1,0 +1,18 @@
+{
+    "output_folder": "results/generate_test",
+    "output_file": "generate_outputs.jsonl",
+    "localize_folder": "results/localize_test",
+    "reproduce_folder": "results/reproduce_test/django/django__django-12708",
+    "temperature": 1.0,
+    "num_samples": 1,
+    "task_id": "django__django-12708",
+    "setup_map": "/home/elloworl/Projects/PycharmProjects/SWE/SWE-bench-ACR/lite_setup_result/setup_map.json",
+    "tasks_map": "/home/elloworl/Projects/PycharmProjects/SWE/SWE-bench-ACR/lite_setup_result/tasks_map.json",
+    "task_list_file": null,
+    "num_threads": 1,
+    "skip_existing": false,
+    "model": "claude-sonnet-4-20250514",
+    "last_step_reproduce": "results/reproduce_test/django/django__django-12708/reproduce_outputs.jsonl",
+    "last_step_loc": "results/localize_test/django/django__django-12708/localize_patch_outputs.jsonl",
+    "last_step_search": "results/localize_test/django/django__django-12708/search"
+}

@@ -1,0 +1,18 @@
+diff --git a/django/db/backends/base/schema.py b/django/db/backends/base/schema.py
+index 61f88401ab..4a2fe044b1 100644
+--- a/django/db/backends/base/schema.py
++++ b/django/db/backends/base/schema.py
+@@ -391,8 +391,13 @@ class BaseDatabaseSchemaEditor:
+         """
+         olds = {tuple(fields) for fields in old_index_together}
+         news = {tuple(fields) for fields in new_index_together}
++        # Any fields still under unique_together provide their own index;
++        # do not drop them when removing index_together.
++        unique_together = {tuple(ut) for ut in model._meta.unique_together}
+         # Deleted indexes
+         for fields in olds.difference(news):
++            if fields in unique_together:
++                continue
+             self._delete_composed_index(model, fields, {'index': True}, self.sql_delete_index)
+         # Created indexes
+         for field_names in news.difference(olds):

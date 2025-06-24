@@ -1,0 +1,63 @@
+diff --git a/django/db/backends/base/schema.py b/django/db/backends/base/schema.py
+index 61f88401ab..1a1e975030 100644
+--- a/django/db/backends/base/schema.py
++++ b/django/db/backends/base/schema.py
+@@ -403,17 +403,47 @@ class BaseDatabaseSchemaEditor:
+         meta_constraint_names = {constraint.name for constraint in model._meta.constraints}
+         meta_index_names = {constraint.name for constraint in model._meta.indexes}
+         columns = [model._meta.get_field(field).column for field in fields]
+-        constraint_names = self._constraint_names(
+-            model, columns, exclude=meta_constraint_names | meta_index_names,
+-            **constraint_kwargs
+-        )
+-        if len(constraint_names) != 1:
+-            raise ValueError("Found wrong number (%s) of constraints for %s(%s)" % (
+-                len(constraint_names),
+-                model._meta.db_table,
+-                ", ".join(columns),
+-            ))
+-        self.execute(self._delete_constraint_sql(sql, model, constraint_names[0]))
++        
++        # Get all constraints from the database
++        table_name = model._meta.db_table
++        all_constraints = self.connection.introspection.get_constraints(self.connection.cursor(), table_name)
++        
++        # Filter constraints that match our columns and type requirements
++        matched_constraints = []
++        for constraint_name, constraint_info in all_constraints.items():
++            # Skip constraints that are defined in model meta (they're handled elsewhere)
++            if constraint_name in meta_constraint_names or constraint_name in meta_index_names:
++                continue
++                
++            # Check if columns match
++            constraint_columns = constraint_info.get('columns', [])
++            if sorted(constraint_columns) != sorted(columns):
++                continue
++                
++            # Check if constraint type matches what we're looking for
++            matches_type = True
++            for key, expected_value in constraint_kwargs.items():
++                constraint_value = constraint_info.get(key, False)
++                if constraint_value != expected_value:
++                    matches_type = False
++                    break
++                    
++            if matches_type:
++                matched_constraints.append(constraint_name)
++        
++        if len(matched_constraints) != 1:
++            constraint_type = "unique" if constraint_kwargs.get('unique') else "index" if constraint_kwargs.get('index') else "unknown"
++            raise ValueError(
++                "Found wrong number (%s) of %s constraints for %s(%s). Expected exactly 1, found: %s" % (
++                    len(matched_constraints),
++                    constraint_type,
++                    model._meta.db_table,
++                    ", ".join(columns),
++                    ", ".join(sorted(matched_constraints)) if matched_constraints else "none"
++                )
++            )
++        
++        self.execute(self._delete_constraint_sql(sql, model, matched_constraints[0]))
+ 
+     def alter_db_table(self, model, old_db_table, new_db_table):
+         """Rename the table a model points to."""

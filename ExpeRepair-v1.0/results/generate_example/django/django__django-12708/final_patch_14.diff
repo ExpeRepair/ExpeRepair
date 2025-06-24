@@ -1,0 +1,69 @@
+diff --git a/django/db/backends/base/schema.py b/django/db/backends/base/schema.py
+index 61f88401ab..6bcba22285 100644
+--- a/django/db/backends/base/schema.py
++++ b/django/db/backends/base/schema.py
+@@ -407,13 +407,62 @@ class BaseDatabaseSchemaEditor:
+             model, columns, exclude=meta_constraint_names | meta_index_names,
+             **constraint_kwargs
+         )
+-        if len(constraint_names) != 1:
++        
++        # If we found exactly one constraint, use it directly
++        if len(constraint_names) == 1:
++            constraint_name = constraint_names[0]
++        elif len(constraint_names) > 1:
++            # Multiple constraints found - need to be more specific based on type
++            if constraint_kwargs.get('unique'):
++                # For unique constraints, get only unique constraints
++                unique_constraints = self._constraint_names(
++                    model, columns, exclude=meta_constraint_names | meta_index_names,
++                    unique=True
++                )
++                if len(unique_constraints) == 1:
++                    constraint_name = unique_constraints[0]
++                else:
++                    raise ValueError("Found wrong number (%s) of unique constraints for %s(%s)" % (
++                        len(unique_constraints),
++                        model._meta.db_table,
++                        ", ".join(columns),
++                    ))
++            elif constraint_kwargs.get('index'):
++                # For index constraints, get indexes but exclude unique ones
++                all_indexes = self._constraint_names(
++                    model, columns, exclude=meta_constraint_names | meta_index_names,
++                    index=True
++                )
++                unique_constraints = self._constraint_names(
++                    model, columns, exclude=meta_constraint_names | meta_index_names,
++                    unique=True
++                )
++                # Remove unique constraints from index list since unique constraints also act as indexes
++                index_only_constraints = [name for name in all_indexes if name not in unique_constraints]
++                if len(index_only_constraints) == 1:
++                    constraint_name = index_only_constraints[0]
++                else:
++                    raise ValueError("Found wrong number (%s) of non-unique index constraints for %s(%s)" % (
++                        len(index_only_constraints),
++                        model._meta.db_table,
++                        ", ".join(columns),
++                    ))
++            else:
++                # Fallback to original error for other constraint types
++                raise ValueError("Found wrong number (%s) of constraints for %s(%s)" % (
++                    len(constraint_names),
++                    model._meta.db_table,
++                    ", ".join(columns),
++                ))
++        else:
++            # No constraints found
+             raise ValueError("Found wrong number (%s) of constraints for %s(%s)" % (
+                 len(constraint_names),
+                 model._meta.db_table,
+                 ", ".join(columns),
+             ))
+-        self.execute(self._delete_constraint_sql(sql, model, constraint_names[0]))
++        
++        self.execute(self._delete_constraint_sql(sql, model, constraint_name))
+ 
+     def alter_db_table(self, model, old_db_table, new_db_table):
+         """Rename the table a model points to."""

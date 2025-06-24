@@ -1,0 +1,41 @@
+diff --git a/django/db/backends/base/schema.py b/django/db/backends/base/schema.py
+index 61f88401ab..28bdf31f2a 100644
+--- a/django/db/backends/base/schema.py
++++ b/django/db/backends/base/schema.py
+@@ -403,10 +403,36 @@ class BaseDatabaseSchemaEditor:
+         meta_constraint_names = {constraint.name for constraint in model._meta.constraints}
+         meta_index_names = {constraint.name for constraint in model._meta.indexes}
+         columns = [model._meta.get_field(field).column for field in fields]
++        
++        # Get constraints matching the specific type we want to delete
+         constraint_names = self._constraint_names(
+             model, columns, exclude=meta_constraint_names | meta_index_names,
+             **constraint_kwargs
+         )
++        
++        # If we found multiple constraints, we might have both unique and index
++        # constraints on the same fields. Filter to get only the type we want.
++        if len(constraint_names) > 1:
++            if constraint_kwargs.get('unique'):
++                # When deleting unique constraints, exclude index-only constraints
++                index_only_names = self._constraint_names(
++                    model, columns, exclude=meta_constraint_names | meta_index_names,
++                    index=True
++                )
++                # Get unique constraint names by excluding index-only ones
++                unique_names = self._constraint_names(
++                    model, columns, exclude=meta_constraint_names | meta_index_names,
++                    unique=True
++                )
++                constraint_names = unique_names
++            elif constraint_kwargs.get('index'):
++                # When deleting index constraints, exclude unique constraints
++                unique_names = self._constraint_names(
++                    model, columns, exclude=meta_constraint_names | meta_index_names,
++                    unique=True
++                )
++                constraint_names = constraint_names - unique_names
++        
+         if len(constraint_names) != 1:
+             raise ValueError("Found wrong number (%s) of constraints for %s(%s)" % (
+                 len(constraint_names),

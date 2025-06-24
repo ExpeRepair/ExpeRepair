@@ -1,0 +1,6 @@
+{
+    "stdout": "### Test 1:\nInput:\nRegular file creation to show baseline permissions\nOutput:\nRegular file permissions: 0o664\n\n### Test 2:\nInput:\nNamedTemporaryFile creation to show restrictive permissions\nOutput:\nTemp file permissions: 0o600\n\n### Test 3:\nInput:\nSimulate TemporaryUploadedFile upload without FILE_UPLOAD_PERMISSIONS\nOutput:\nTemp file permissions: 0o600\nFinal file permissions: 0o664\nPermissions preserved from temp: False\n\n### Test 4:\nInput:\nSimulate TemporaryUploadedFile upload with FILE_UPLOAD_PERMISSIONS=0o644\nOutput:\nTemp file permissions: 0o600\nFinal file permissions: 0o644\nExpected permissions: 0o644\nCorrectly set to expected: True\n\n### Test 5:\nInput:\nSimpleUploadedFile upload without FILE_UPLOAD_PERMISSIONS (no temp file)\nOutput:\nSimpleUploadedFile final permissions: 0o664\nNo temp file involved - uses default file creation permissions\n\n",
+    "stderr": "",
+    "returncode": 0,
+    "triggered": false
+}

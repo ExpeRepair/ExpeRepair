@@ -1,0 +1,22 @@
+diff --git a/django/db/backends/base/schema.py b/django/db/backends/base/schema.py
+index 61f88401ab..0b71f3616e 100644
+--- a/django/db/backends/base/schema.py
++++ b/django/db/backends/base/schema.py
+@@ -407,6 +407,17 @@ class BaseDatabaseSchemaEditor:
+             model, columns, exclude=meta_constraint_names | meta_index_names,
+             **constraint_kwargs
+         )
++        
++        # If we're looking for index constraints and found multiple constraints,
++        # filter out unique constraints to avoid conflicts with unique_together
++        if constraint_kwargs.get('index') and len(constraint_names) > 1:
++            # Get unique constraint names to exclude them
++            unique_constraint_names = self._constraint_names(
++                model, columns, exclude=meta_constraint_names | meta_index_names,
++                unique=True
++            )
++            constraint_names = constraint_names - unique_constraint_names
++        
+         if len(constraint_names) != 1:
+             raise ValueError("Found wrong number (%s) of constraints for %s(%s)" % (
+                 len(constraint_names),
