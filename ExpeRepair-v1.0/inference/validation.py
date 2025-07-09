@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from openai import OpenAI
 from pathlib import Path
+import litellm
 
 SYSTEM_PROMPT_W_REPO = "You are an expert software engineering evaluator analyzing patches for resolving GitHub issues in the {repo_name} project."
 
@@ -209,17 +210,11 @@ def select_patch_initial(client_name, category_results, test_content,
                          reproduce_stdout, reproduce_stderr, repo_name):
     if client_name == 'client_openai':
         key = os.getenv("OPENAI_KEY")
-        client = OpenAI(
-            api_key=key,
-        )
         model = 'o4-mini'
 
     elif client_name == 'client_claude':
         key = os.getenv("CLAUDE_KEY")
-        client = OpenAI(base_url='https://chat.cloudapi.vip/v1',
-                        api_key=key,
-                        default_headers={"x-foo": "true"}, )
-        model = 'claude-sonnet-4-20250514'
+        model = 'anthropic/claude-sonnet-4-20250514'
 
     else:
         assert 1 == 2
@@ -242,9 +237,9 @@ def select_patch_initial(client_name, category_results, test_content,
 
     for _ in range(3):
         try:
-            completion = client.chat.completions.create(
+            completion = litellm.completion(
                 model=model,
-                messages=message_list
+                messages=message_list, api_key=key
             )
             response = completion.choices[0].message.content
             select_result = ase_extract_selection(response, ['correct_patch'])
@@ -262,17 +257,11 @@ def select_patch_initial(client_name, category_results, test_content,
 def select_patch_second(client_name, patch_lines, repo_name):
     if client_name == 'client_openai':
         key = os.getenv("OPENAI_KEY")
-        client = OpenAI(
-            api_key=key,
-        )
         model = 'o4-mini'
 
     elif client_name == 'client_claude':
         key = os.getenv("CLAUDE_KEY")
-        client = OpenAI(base_url='https://chat.cloudapi.vip/v1',
-                        api_key=key,
-                        default_headers={"x-foo": "true"}, )
-        model = 'claude-sonnet-4-20250514'
+        model = 'anthropic/claude-sonnet-4-20250514'
 
     else:
         assert 1 == 2
@@ -318,9 +307,9 @@ def select_patch_second(client_name, patch_lines, repo_name):
 
         for _ in range(3):
             try:
-                completion = client.chat.completions.create(
+                completion = litellm.completion(
                     model=model,
-                    messages=message_list
+                    messages=message_list, api_key=key
                 )
                 response = completion.choices[0].message.content
                 select_result = ase_extract_selection(response, ['rank_patch'])

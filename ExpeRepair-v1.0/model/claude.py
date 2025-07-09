@@ -1,38 +1,23 @@
 """
-Interfacing with OpenAI models.
+For models other than those from OpenAI, use LiteLLM if possible.
 """
 
-import json
 import os
 import sys
-from typing import Literal, cast
+from typing import Literal
 
-from loguru import logger
-from openai import BadRequestError, OpenAI
-from openai.types.chat import (
-    ChatCompletion,
-    ChatCompletionMessage,
-    ChatCompletionMessageToolCall,
-)
-from openai.types.chat.chat_completion_message_tool_call import (
-    Function as OpenaiFunction,
-)
-from openai.types.chat.chat_completion_tool_choice_option_param import (
-    ChatCompletionToolChoiceOptionParam,
-)
-from openai.types.chat.completion_create_params import ResponseFormat
-from tenacity import retry, stop_after_attempt, wait_random_exponential
+import litellm
+from litellm.utils import Choices, Message, ModelResponse
+from openai import BadRequestError
 
-from data_structures import FunctionCallIntent
 from log import log_and_print
 from model import common
-from model.common import Model
+from model.common import ClaudeContentPolicyViolation, Model
 
 
-class OpenaiModel(Model):
+class AnthropicModel(Model):
     """
-    Base class for creating Singleton instances of OpenAI models.
-    We use native API from OpenAI instead of LiteLLM.
+    Base class for creating Singleton instances of Antropic models.
     """
 
     _instances = {}
@@ -46,253 +31,135 @@ class OpenaiModel(Model):
     def __init__(
         self,
         name: str,
-        max_output_token: int,
         cost_per_input: float,
         cost_per_output: float,
+        max_output_token: int = 4096,
         parallel_tool_call: bool = False,
     ):
         if self._initialized:
             return
         super().__init__(name, cost_per_input, cost_per_output, parallel_tool_call)
-        # max number of output tokens allowed in model response
-        # sometimes we want to set a lower number for models with smaller context window,
-        # because output token limit consumes part of the context window
         self.max_output_token = max_output_token
-        # client for making request
-        self.client: OpenAI | None = None
         self._initialized = True
 
     def setup(self) -> None:
         """
-        Check API key, and initialize OpenAI client.
+        Check API key.
         """
-        if self.client is None:
-            key = self.check_api_key()
-            self.client = OpenAI(
-                base_url="https://chat.cloudapi.vip/v1/",  # todo delete
-                # default_headers={"x-foo": "true"},
-                api_key=key)
+        os.environ["ANTHROPIC_API_KEY"] = self.check_api_key()
 
     def check_api_key(self) -> str:
-        key = os.getenv("CLAUDE_KEY")
+        key_name = "CLAUDE_KEY"
+        key = os.getenv(key_name)
         if not key:
-            print("Please set the OPENAI_KEY env var")
+            print(f"Please set the {key_name} env var")
             sys.exit(1)
         return key
 
-    def extract_resp_content(
-        self, chat_completion_message: ChatCompletionMessage
-    ) -> str:
+    def extract_resp_content(self, chat_message: Message) -> str:
         """
         Given a chat completion message, extract the content from it.
         """
-        content = chat_completion_message.content
+        content = chat_message.content
         if content is None:
             return ""
         else:
             return content
 
-    def extract_resp_func_calls(
-        self,
-        chat_completion_message: ChatCompletionMessage,
-    ) -> list[FunctionCallIntent]:
-        """
-        Given a chat completion message, extract the function calls from it.
-        Args:
-            chat_completion_message (ChatCompletionMessage): The chat completion message.
-        Returns:
-            List[FunctionCallIntent]: A list of function calls.
-        """
-        result = []
-        tool_calls = chat_completion_message.tool_calls
-        if tool_calls is None:
-            return result
-
-        call: ChatCompletionMessageToolCall
-        for call in tool_calls:
-            called_func: OpenaiFunction = call.function
-            func_name = called_func.name
-            func_args_str = called_func.arguments
-            # maps from arg name to arg value
-            if func_args_str == "":
-                args_dict = {}
-            else:
-                try:
-                    args_dict = json.loads(func_args_str, strict=False)
-                except json.decoder.JSONDecodeError:
-                    args_dict = {}
-            func_call_intent = FunctionCallIntent(func_name, args_dict, called_func)
-            result.append(func_call_intent)
-
-        return result
-
-    # FIXME: the returned type contains OpenAI specific Types, which should be avoided
-    @retry(wait=wait_random_exponential(min=30, max=600), stop=stop_after_attempt(3))
     def call(
         self,
         messages: list[dict],
-        top_p: float = 1,
-        tools: list[dict] | None = None,
+        top_p=1,
+        tools=None,
         response_format: Literal["text", "json_object"] = "text",
         temperature: float | None = None,
         **kwargs,
-    ) -> tuple[
-        str,
-        list[ChatCompletionMessageToolCall] | None,
-        list[FunctionCallIntent],
-        float,
-        int,
-        int,
-    ]:
-        """
-        Calls the openai API to generate completions for the given inputs.
-        Assumption: we only retrieve one choice from the API response.
-
-        Args:
-            messages (List): A list of messages.
-                            Each item is a dict (e.g. {"role": "user", "content": "Hello, world!"})
-            top_p (float): The top_p to use. We usually do not vary this, so not setting it as a cmd-line argument. (from 0 to 1)
-            tools (List, optional): A list of tools.
-
-        Returns:
-            Raw response and parsed components.
-            The raw response is to be sent back as part of the message history.
-        """
+    ):
+        # FIXME: ignore tools field since we don't use tools now
         if temperature is None:
             temperature = common.MODEL_TEMP
 
-        print('=================================', temperature, '=================================')
-
-        assert self.client is not None
         try:
-            if tools is not None and len(tools) == 1:
-                # there is only one tool => force the model to use it
-                tool_name = tools[0]["function"]["name"]
-                tool_choice = {"type": "function", "function": {"name": tool_name}}
-                response: ChatCompletion = self.client.chat.completions.create(
-                    model=self.name,
-                    messages=messages,  # type: ignore
-                    tools=tools,  # type: ignore
-                    tool_choice=cast(ChatCompletionToolChoiceOptionParam, tool_choice),
-                    temperature=temperature, # todo for o3-mini
-                    response_format=ResponseFormat(type=response_format),
-                    max_tokens=self.max_output_token, # todo for o3-mini
-                    top_p=top_p,
-                    stream=False,
-                )
-            else:
-                response: ChatCompletion = self.client.chat.completions.create(
-                    model=self.name,
-                    messages=messages,  # type: ignore
-                    tools=tools,  # type: ignore
-                    temperature=temperature, # todo for o3-mini
-                    response_format=ResponseFormat(type=response_format),
-                    max_tokens=self.max_output_token, # todo for o3-mini
-                    top_p=top_p,
-                    stream=False,
-                )
 
-            usage_stats = response.usage
-            assert usage_stats is not None
+            if response_format == "json_object":
+                last_content = messages[-1]["content"]
+                last_content += "\nYour response should start with { and end with }. DO NOT write anything else other than the json."
+                messages[-1]["content"] = last_content
 
-            input_tokens = int(usage_stats.prompt_tokens)
-            output_tokens = int(usage_stats.completion_tokens)
+            response = litellm.completion(
+                model="anthropic/" + self.name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=self.max_output_token,
+                top_p=top_p,
+                stream=False,
+            )
+
+            assert isinstance(response, ModelResponse)
+            resp_usage = response.usage
+            assert resp_usage is not None
+            input_tokens = int(resp_usage.prompt_tokens)
+            output_tokens = int(resp_usage.completion_tokens)
             cost = self.calc_cost(input_tokens, output_tokens)
 
             common.thread_cost.process_cost += cost
             common.thread_cost.process_input_tokens += input_tokens
             common.thread_cost.process_output_tokens += output_tokens
 
-            raw_response = response.choices[0].message
-            # log_and_print(f"Raw model response: {raw_response}")
-            content = self.extract_resp_content(raw_response)
-            # print(content)
-            # raw_tool_calls = raw_response.tool_calls
-            # func_call_intents = self.extract_resp_func_calls(raw_response)
-            raw_tool_calls = None
-            func_call_intents = []
-            return (
-                content,
-                raw_tool_calls,
-                func_call_intents,
-                cost,
-                input_tokens,
-                output_tokens,
-            )
+            first_resp_choice = response.choices[0]
+            assert isinstance(first_resp_choice, Choices)
+            resp_msg: Message = first_resp_choice.message
+            content = self.extract_resp_content(resp_msg)
+
+            return content, cost, input_tokens, output_tokens
+
+        except litellm.exceptions.ContentPolicyViolationError:
+            # claude sometimes send this error when writing patch
+            log_and_print("Encountered claude content policy violation.")
+            raise ClaudeContentPolicyViolation
+
         except BadRequestError as e:
-            logger.debug("BadRequestError ({}): messages={}", e.code, messages)
             if e.code == "context_length_exceeded":
                 log_and_print("Context length exceeded")
             raise e
 
 
-    # FIXME: the returned type contains OpenAI specific Types, which should be avoided
-    @retry(wait=wait_random_exponential(min=30, max=600), stop=stop_after_attempt(3))
     def call_n(
         self,
         messages: list[dict],
         n: int,
-        top_p: float = 1,
-        tools: list[dict] | None = None,
+        top_p=1,
+        tools=None,
         response_format: Literal["text", "json_object"] = "text",
         temperature: float | None = None,
         **kwargs,
     ):
-        """
-        Calls the openai API to generate completions for the given inputs.
-        Assumption: we only retrieve one choice from the API response.
-
-        Args:
-            messages (List): A list of messages.
-                            Each item is a dict (e.g. {"role": "user", "content": "Hello, world!"})
-            top_p (float): The top_p to use. We usually do not vary this, so not setting it as a cmd-line argument. (from 0 to 1)
-            tools (List, optional): A list of tools.
-
-        Returns:
-            Raw response and parsed components.
-            The raw response is to be sent back as part of the message history.
-        """
+        # FIXME: ignore tools field since we don't use tools now
         if temperature is None:
             temperature = common.MODEL_TEMP
 
-        print('=================================', temperature, n, '=================================')
-
-        assert self.client is not None
         try:
-            if tools is not None and len(tools) == 1:
-                # there is only one tool => force the model to use it
-                tool_name = tools[0]["function"]["name"]
-                tool_choice = {"type": "function", "function": {"name": tool_name}}
-                response: ChatCompletion = self.client.chat.completions.create(
-                    model=self.name,
-                    messages=messages,  # type: ignore
-                    tools=tools,  # type: ignore
-                    tool_choice=cast(ChatCompletionToolChoiceOptionParam, tool_choice),
-                    temperature=temperature,  # todo for o3-mini
-                    response_format=ResponseFormat(type=response_format),
-                    max_tokens=self.max_output_token, # todo for o3-mini
-                    top_p=top_p,
-                    stream=False,
-                    n=n
-                )
-            else:
-                response: ChatCompletion = self.client.chat.completions.create(
-                    model=self.name,
-                    messages=messages,  # type: ignore
-                    tools=tools,  # type: ignore
-                    temperature=temperature, # todo for o3-mini
-                    response_format=ResponseFormat(type=response_format),
-                    max_tokens=self.max_output_token, # todo for o3-mini
-                    top_p=top_p,
-                    stream=False,
-                    n=n
-                )
 
-            usage_stats = response.usage
-            assert usage_stats is not None
+            if response_format == "json_object":
+                last_content = messages[-1]["content"]
+                last_content += "\nYour response should start with { and end with }. DO NOT write anything else other than the json."
+                messages[-1]["content"] = last_content
 
-            input_tokens = int(usage_stats.prompt_tokens)
-            output_tokens = int(usage_stats.completion_tokens)
+            response = litellm.completion(
+                model="anthropic/" + self.name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=self.max_output_token,
+                top_p=top_p,
+                stream=False,
+                n=n
+            )
+
+            assert isinstance(response, ModelResponse)
+            resp_usage = response.usage
+            assert resp_usage is not None
+            input_tokens = int(resp_usage.prompt_tokens)
+            output_tokens = int(resp_usage.completion_tokens)
             cost = self.calc_cost(input_tokens, output_tokens)
 
             common.thread_cost.process_cost += cost
@@ -300,65 +167,62 @@ class OpenaiModel(Model):
             common.thread_cost.process_output_tokens += output_tokens
 
             assert len(response.choices) == n
-            content_list, raw_tool_calls_list, func_call_intents_list = [], [], []
-            for choice_msg in response.choices:
-                raw_response = choice_msg.message
-                content = self.extract_resp_content(raw_response)
-                raw_tool_calls = raw_response.tool_calls
-                func_call_intents = self.extract_resp_func_calls(raw_response)
-
+            content_list = []
+            for first_resp_choice in response.choices:
+                assert isinstance(first_resp_choice, Choices)
+                resp_msg: Message = first_resp_choice.message
+                content = self.extract_resp_content(resp_msg)
                 content_list.append(content)
-                raw_tool_calls_list.append(raw_tool_calls)
-                func_call_intents_list.append(func_call_intents)
-            return (
-                content_list,
-                raw_tool_calls_list,
-                func_call_intents_list,
-                cost,
-                input_tokens,
-                output_tokens,
-            )
+
+            return content_list, cost, input_tokens, output_tokens
+
+        except litellm.exceptions.ContentPolicyViolationError:
+            # claude sometimes send this error when writing patch
+            log_and_print("Encountered claude content policy violation.")
+            raise ClaudeContentPolicyViolation
+
         except BadRequestError as e:
-            logger.debug("BadRequestError ({}): messages={}", e.code, messages)
             if e.code == "context_length_exceeded":
                 log_and_print("Context length exceeded")
             raise e
 
-
-class Claude4_20250514(OpenaiModel):
+class Claude4_20250514(AnthropicModel):
     def __init__(self):
         super().__init__(
-            "claude-sonnet-4-20250514", 12288, 0.0000025, 0.00001, parallel_tool_call=True
+            "claude-sonnet-4-20250514", 0.000015, 0.000075,
+            max_output_token=12288, parallel_tool_call=True
         )
-        self.note = "Multimodal model. Up to Nov 2024."
+        self.note = "Most intelligent model from Antropic"
 
 
-class Claude4_20250514X(OpenaiModel):
+class Claude_20241022(AnthropicModel):
     def __init__(self):
         super().__init__(
-            "claude-sonnet-4-20250514-X", 12288, 0.0000025, 0.00001, parallel_tool_call=True
+            "claude-3-5-sonnet-20241022", 0.000003, 0.000015,
+            max_output_token=8000, parallel_tool_call=True
         )
-        self.note = "Multimodal model. Up to Nov 2024."
+        self.note = "Most intelligent model from Antropic"
 
 
-class Claude_20241022(OpenaiModel):
+class Claude3Haiku(AnthropicModel):
     def __init__(self):
         super().__init__(
-            "claude-3-5-sonnet-20241022", 8000, 0.0000025, 0.00001, parallel_tool_call=True
+            "claude-3-haiku-20240307", 0.00000025, 0.00000125, parallel_tool_call=True
         )
-        self.note = "Multimodal model. Up to Nov 2024."
+        self.note = "Fastest model from Antropic"
 
 
-class Claude_20241022r(OpenaiModel):
+class Claude3_5Sonnet(AnthropicModel):
     def __init__(self):
         super().__init__(
-            "claude-3-5-sonnet-20241022-r", 8000, 0.0000025, 0.00001, parallel_tool_call=True
+            "claude-3-5-sonnet-20240620", 0.000003, 0.000015, parallel_tool_call=True
         )
-        self.note = "Multimodal model. Up to Nov 2024."
+        self.note = "Most intelligent model from Antropic"
 
-class Claude_20241022X(OpenaiModel):
+
+class Claude3_5SonnetNew(AnthropicModel):
     def __init__(self):
         super().__init__(
-            "claude-3-5-sonnet-20241022-X", 8000, 0.0000025, 0.00001, parallel_tool_call=True
+            "claude-3-5-sonnet-20241022", 0.000003, 0.000015, parallel_tool_call=True
         )
-        self.note = "Multimodal model. Up to Nov 2024."
+        self.note = "Most intelligent model from Antropic"
