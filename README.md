@@ -4,8 +4,6 @@
 - **Program Repair Module**: Consists of a Test Agent and a Patch Agent that collaboratively handle three key tasks — test generation, patch generation, and patch validation.
 - **Memory Module**: Captures repair trajectories from the Program Repair Module, extracting concrete demonstrations and summarizing high-level repair strategies. These are stored in **episodic memory** and **semantic memory**, respectively. During future repairs, ExpeRepair retrieves relevant demonstrations and insights to enhance its repair strategy for new issues.
 
-[Jun 24, 2025]: ExpeRepair-v1.0 resolves **48.33%** and **60.33%** of issues on [SWE-bench Lite](https://www.swebench.com/) with Claude 3.5 Sonnet and Claude 4 Sonnet, respectively.
-
 ## 🚀 Quick Start
 
 ### Installation
@@ -36,6 +34,13 @@ export PROJECT_FILE_LOC={folder which you saved}
 
 Finally, set up the testbed by following the instructions from the [auto-code-rover project](https://github.com/AutoCodeRoverSG/auto-code-rover#setting-up-testbed).
 
+### Running ExpeRepair on the Full Benchmark
+1. Run `run_reproduce_initial.sh` with **all instance IDs**.
+2. Run `run_localization.sh` with **all instance IDs**.
+3. For instances where reproduction succeeds (i.e., a valid `reproducer_X.py` script is generated), run `generate_initial.py`.
+4. For the remaining instances, run `generate_w_memory.py`, which leverages the accumulated memory and continues updating it.
+5. Finally, run `validation.py` and `obtain_predictions.py` with all instance IDs.
+
 
 ### Usage
 ```bash
@@ -53,19 +58,6 @@ python inference/validation.py
 
 # obtain the prediction results
 python inference/obtain_predictions.py
-```
-
-## 📝 Citation
-For details, please see our paper: [ExpeRepair arXiv paper](https://arxiv.org/abs/2506.10484).
-
-If you use ExpeRepair in your work, kindly cite:
-```bibtex
-@article{mu2025experepair,
-  title={EXPEREPAIR: Dual-Memory Enhanced LLM-based Repository-Level Program Repair},
-  author={Mu, Fangwen and Wang, Junjie and Shi, Lin and Wang, Song and Li, Shoubin and Wang, Qing},
-  journal={arXiv preprint arXiv:2506.10484},
-  year={2025}
-}
 ```
 
 ## 🙏 Acknowledgement 
