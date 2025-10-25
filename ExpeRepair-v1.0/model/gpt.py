@@ -5,7 +5,7 @@ Interfacing with OpenAI models.
 import json
 import os
 import sys
-from typing import Literal, cast
+from typing import Literal, cast, Optional, Union, Dict, Any
 
 from loguru import logger
 from openai import BadRequestError, OpenAI
@@ -132,7 +132,7 @@ class OpenaiModel(Model):
         messages: list[dict],
         top_p: float = 1,
         tools: list[dict] | None = None,
-        response_format: Literal["text", "json_object"] = "text",
+        response_format: Literal["text", "json_object"] | Dict[str, Any] = "text",
         temperature: float | None = None,
         **kwargs,
     ) -> tuple[
@@ -163,6 +163,18 @@ class OpenaiModel(Model):
         print('=================================', temperature, '=================================')
 
         assert self.client is not None
+
+        # --- normalize response_format for new OpenAI SDKs (accept dict) ---
+        def _normalize_response_format(fmt: Optional[Union[str, Dict[str, Any]]]):
+            if not fmt or fmt == "text":
+                return None
+            if isinstance(fmt, dict):
+                return fmt
+            if isinstance(fmt, str):
+                return {"type": fmt}
+            return None
+        _rf = _normalize_response_format(response_format)
+
         try:
             if tools is not None and len(tools) == 1:
                 # there is only one tool => force the model to use it
@@ -174,7 +186,7 @@ class OpenaiModel(Model):
                     tools=tools,  # type: ignore
                     tool_choice=cast(ChatCompletionToolChoiceOptionParam, tool_choice),
                     # temperature=temperature, # todo for o3-mini
-                    response_format=ResponseFormat(type=response_format),
+                    **({"response_format": _rf} if _rf else {}),
                     # max_tokens=self.max_output_token, # todo for o3-mini
                     top_p=top_p,
                     stream=False,
@@ -185,7 +197,7 @@ class OpenaiModel(Model):
                     messages=messages,  # type: ignore
                     tools=tools,  # type: ignore
                     # temperature=temperature, # todo for o3-mini
-                    response_format=ResponseFormat(type=response_format),
+                    **({"response_format": _rf} if _rf else {}),
                     # max_tokens=self.max_output_token, # todo for o3-mini
                     top_p=top_p,
                     stream=False,
@@ -268,7 +280,7 @@ class OpenaiModel(Model):
                     tools=tools,  # type: ignore
                     tool_choice=cast(ChatCompletionToolChoiceOptionParam, tool_choice),
                     # temperature=temperature,  # todo for o3-mini
-                    response_format=ResponseFormat(type=response_format),
+                    **({"response_format": _rf} if _rf else {}),
                     # max_tokens=self.max_output_token, # todo for o3-mini
                     top_p=top_p,
                     stream=False,
@@ -280,7 +292,7 @@ class OpenaiModel(Model):
                     messages=messages,  # type: ignore
                     tools=tools,  # type: ignore
                     # temperature=temperature, # todo for o3-mini
-                    response_format=ResponseFormat(type=response_format),
+                    **({"response_format": _rf} if _rf else {}),
                     # max_tokens=self.max_output_token, # todo for o3-mini
                     top_p=top_p,
                     stream=False,
